@@ -1,32 +1,125 @@
-from playwright.sync_api import sync_playwright
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import datetime
+import os
 import time
-import json
+import sqlite3
+import random
 import re
 
 BASE_URL = "https://stats.ncaa.org/season_divisions/18783/livestream_scoreboards"
+DB_PATH = r"C:\Users\mason\baseball\data\box_scores.db"
 
 
 def clean_name(name):
-    """Strip W-L record from team name e.g. 'Maine (1-1)' -> 'Maine'"""
     if not name:
         return None
     return re.sub(r'\s*\(\d+-\d+\)', '', name).strip()
 
 
-def scrape_date(date_str, page):
+def get_driver():
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1280,800")
+    options.add_argument("--lang=en-US")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    return driver
+
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS games (
+            contest_id   TEXT PRIMARY KEY,
+            date         TEXT,
+            game_number  INTEGER,
+            status       TEXT,
+            attendance   TEXT,
+            winner       TEXT,
+            away_id      TEXT,
+            away_name    TEXT,
+            away_runs    INTEGER,
+            away_hits    INTEGER,
+            away_errors  INTEGER,
+            home_id      TEXT,
+            home_name    TEXT,
+            home_runs    INTEGER,
+            home_hits    INTEGER,
+            home_errors  INTEGER
+        )
+    ''')
+    conn.commit()
+    return conn
+
+
+def save_games(conn, games):
+    cursor = conn.cursor()
+    for game in games:
+        cursor.execute('''
+            INSERT OR REPLACE INTO games VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
+        ''', (
+            game["contest_id"],
+            game["date"],
+            game["game_number"],
+            game["status"],
+            game["attendance"],
+            game["winner"],
+            game["away"]["id"],
+            game["away"]["name"],
+            game["away"]["runs"],
+            game["away"]["hits"],
+            game["away"]["errors"],
+            game["home"]["id"],
+            game["home"]["name"],
+            game["home"]["runs"],
+            game["home"]["hits"],
+            game["home"]["errors"],
+        ))
+    conn.commit()
+
+
+def scrape_date(date_str, driver):
     url = f"{BASE_URL}?game_date={date_str}"
     print("Scraping:", url)
-    page.goto(url, timeout=60000)
-    page.wait_for_load_state("networkidle")
-    soup = BeautifulSoup(page.content(), "html.parser")
 
+    try:
+        driver.get(url)
+
+        time.sleep(random.uniform(5,10))
+    except Exception as e:
+        print(f"  Failed to load page: {e}")
+        time.sleep(60)
+        return []
+
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.card"))
+        )
+    except Exception:
+        print("  No cards found (timeout) — skipping")
+        return []
+
+    soup = BeautifulSoup(driver.page_source, "html.parser")
     games = []
 
     for card in soup.select("div.card"):
         try:
-            # --- Date + attendance ---
             date_div = card.select_one("div.col-6.p-0")
             attend_div = card.select_one("div.col.p-0.text-right")
 
@@ -34,22 +127,18 @@ def scrape_date(date_str, page):
             attendance_raw = attend_div.text.strip() if attend_div else None
             attendance = attendance_raw.replace("Attend:", "").strip() if attendance_raw else None
 
-            # Game number for doubleheaders e.g. "02/13/2026 03:30 PM (1)"
             game_num_match = re.search(r'\((\d+)\)', raw_date)
             game_number = int(game_num_match.group(1)) if game_num_match else None
 
-            # Clean date to just MM/DD/YYYY
             game_date_match = re.search(r'\d{2}/\d{2}/\d{4}', raw_date)
             game_date = game_date_match.group(0) if game_date_match else date_str
 
-            # --- Contest ID ---
             contest_rows = card.select("tr[id^='contest_']")
             if not contest_rows:
                 continue
 
             contest_id = contest_rows[0]["id"].replace("contest_", "")
 
-            # --- Game status from td[rowspan='2'][colspan='3'] ---
             status_td = card.select_one("td[rowspan='2'][colspan='3']")
             if status_td:
                 status_text = status_td.text.strip()
@@ -62,7 +151,6 @@ def scrape_date(date_str, page):
             else:
                 status = "final"
 
-            # --- Parse each team row ---
             def parse_team(tr, is_final):
                 team_td = tr.select_one("td.opponents_min_width, td.winner_background")
                 team_link = team_td.select_one("a") if team_td else None
@@ -120,51 +208,51 @@ def scrape_date(date_str, page):
     return games
 
 
-def dedup(games):
-    seen = {}
-    for game in games:
-        cid = game["contest_id"]
-        if cid not in seen:
-            seen[cid] = game
-        else:
-            if game["status"] == "final":
-                seen[cid] = game
-    return list(seen.values())
-
-
 if __name__ == "__main__":
     start = datetime.date(2026, 2, 13)
     end = datetime.date.today()
 
-    all_games = []
+    # Make sure the output directory exists
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+    conn = init_db()
 
+    # Print how many games are already in the DB
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM games")
+    existing_count = cursor.fetchone()[0]
+    print(f"Existing games in DB: {existing_count}")
+
+    driver = get_driver()
+
+    try:
         current = start
         while current <= end:
             date_str = current.strftime("%m/%d/%Y")
-            games = scrape_date(date_str, page)
+            games = scrape_date(date_str, driver)
             print(f"  Found {len(games)} games")
-            all_games.extend(games)
 
-            with open(r"C:\Users\mason\baseball\data\box_scores.json", "w") as f:
-                json.dump(all_games, f, indent=2)
+            if games:
+                save_games(conn, games)
 
-            time.sleep(1)
             current += datetime.timedelta(days=1)
 
-        browser.close()
+    finally:
+        driver.quit()
+        conn.close()
 
-    all_games = dedup(all_games)
+    # Print final stats
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM games")
+    total = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM games WHERE status = 'final'")
+    finals = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM games WHERE status = 'postponed'")
+    postponed = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM games WHERE status = 'cancelled'")
+    cancelled = cursor.fetchone()[0]
+    conn.close()
 
-    with open(r"C:\Users\mason\baseball\data\box_scores.json", "w") as f:
-        json.dump(all_games, f, indent=2)
-
-    print(f"\nDone! Saved {len(all_games)} games to \ data\ box_scores.json")
-
-    finals = sum(1 for g in all_games if g['status'] == 'final')
-    postponed = sum(1 for g in all_games if g['status'] == 'postponed')
-    cancelled = sum(1 for g in all_games if g['status'] == 'cancelled')
+    print(f"\nDone! Total games in DB: {total}")
     print(f"  Final: {finals} | Postponed: {postponed} | Cancelled: {cancelled}")
