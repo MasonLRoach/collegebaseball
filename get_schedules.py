@@ -68,8 +68,6 @@ def get_teams(conn):
 def save_schedule(conn, team_id, team_name, games):
     cursor = conn.cursor()
     for game in games:
-        if not game["contest_id"]:
-            continue
         cursor.execute('''
             INSERT OR REPLACE INTO schedules VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
