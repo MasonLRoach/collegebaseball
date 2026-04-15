@@ -1,0 +1,22 @@
+th {
+    font-weight: 900;
+    font-size: 20px;
+    border-bottom: 2px solid black !important;
+    padding: 12px 20px;
+    background-color: #eee ;
+    text-transform: uppercase;
+}
+
+table, th, td {
+    margin: auto;
+    overflow: hidden;
+    text-align: center;
+    border-collapse:collapse;
+    border: 1px solid black;
+}
+
+.at-symbol {
+    font-size: 12px;
+    vertical-align: text-bottom;
+}
+

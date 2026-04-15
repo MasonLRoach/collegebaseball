@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ team[1] }} Schedule</title>
+    <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+
+    <h1>{{ team[1] }}</h1>
+    <p>Conference: {{ team[2] }}</p>
+
+    <a href="/">Back to Standings</a>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Opponent</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for game in games %}
+            <tr>
+                <td>{{ game[0] }}</td>
+                <td>
+                    {% if game[2] == 'away' %}
+                        <span class="at-symbol">@</span> <a href="/schedule/{{ game[6] }}">{{ game[1] }}
+                    {% else %}
+                        <a href="/schedule/{{ game[6] }}">{{ game[1] }}
+                    {% endif %}
+                </td>
+                <td>
+                {% if game[4] == 'final' %}
+                        {{ game[3] }}
+                {% elif game[4] == 'cancelled' %}
+                    <span style="color: red; font-weight: bold;">Cancelled</span>
+                {% elif game[4] == 'postponed' %}
+                    <span style="color: orange;">Postponed</span>
+                {% else %}
+                     {{ game[4] | capitalize }}
+                {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    
+
+</body>
+</html>

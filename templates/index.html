@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>College Baseball Standings</title>
+    <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+    <h1>College Baseball Standings</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Team</th>
+                <th>Conference</th>
+                <th>W</th>
+                <th>L</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for team in teams %}
+            <tr>
+                <td><a href="/schedule/{{ team[5] }}">{{ team[0] }}</a></td>
+                <td>{{ team[1] }}</td>
+                <td>{{ team[3] }}</td>
+                <td>{{ team[4] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
