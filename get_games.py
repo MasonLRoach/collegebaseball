@@ -192,7 +192,7 @@ def scrape_date(date_str, driver):
  
  
 if __name__ == "__main__":
-    start = datetime.date(2026, 4, 14)
+    start = datetime.date(2026, 4, 15)
     end = datetime.date.today()
  
     print(f"Scraping from {start.strftime('%m/%d/%Y')} to {end.strftime('%m/%d/%Y')}")
